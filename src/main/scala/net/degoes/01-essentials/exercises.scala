@@ -4,6 +4,7 @@ package net.degoes.essentials
 
 import java.time.LocalDate
 
+import scala.annotation.tailrec
 import scala.util.Try
 
 object types {
@@ -152,25 +153,51 @@ object types {
   //  - A non player can be a ogre, a troll or a wizard.
   //
 
-  type GameWorld = (List[Realm], List[RealmPath])
+  case class GameWorld(realms: List[Realm], paths: List[RealmPath])
   type Item = String
 
-  case class RealmPath(from: Realm, to: Realm)
+  final case class RealmPath(from: Realm, to: Realm)
 
-  case class Realm(identifier: String = "", inventory: List[Item] = Nil, characters: List[Character] = Nil)
-  case object Plain extends Realm
-  case object Dungeon extends Realm
-  case object Cave extends Realm
+  sealed trait RealmType
+  final case object Plain extends RealmType
+  final case object Dungeon extends RealmType
+  final case object Cave extends RealmType
 
-  case class Character(inventory: List[Item] = Nil)
+  final case class Realm(identifier: String, inventory: List[Item], characters: List[Character], realmType: RealmType)
 
-  case class Player(name: String) extends Character
-  case class NonPlayer() extends Character with NonPlayerType
+  /*
+    // OO
+    def f(r: Realm): ??? = r match {
+      case Plain(...) =>
+      case Dungeon(...) =>
+    }
+
+    // FP
+    def g(r: Realm): ??? = r.realmType match {
+      case Plain => r.id
+      case Dungeon =>
+    }
+   */
+
+  final case class Character(inventory: List[Item], characterType: CharacterType)
+
+  sealed trait CharacterType
+  final case class Player(name: String)
+  final case class NonPlayer(nonPlayerType: NonPlayerType)
 
   sealed trait NonPlayerType
-  case object Ogre extends NonPlayerType
-  case object Troll extends NonPlayerType
-  case object Wizard extends NonPlayerType
+  final case object Ogre extends NonPlayerType
+  final case object Troll extends NonPlayerType
+  final case object Wizard extends NonPlayerType
+
+  /*
+    def f(c: Character): ??? = c.match {
+      case Character(_, Player(name)) => s"Hello I'm a player. My name is ${name}"
+      case Character(_, NonPlayer(Ogre)) => "Hello I'm a ogre"
+      case Character(_, NonPlayer(Troll)) => "Hello I'm a troll"
+      case Character(_, NonPlayer(Wizard)) => "Hello I'm a wizard"
+    }
+   */
 }
 
 object functions {
@@ -270,21 +297,22 @@ object functions {
   //
   // Implement the following function under the Scalazzi subset of Scala.
   //
-  def printLine(line: String): Unit = ???
+  def printLine(line: String): Unit = ()
 
   //
   // EXERCISE 9
   //
   // Implement the following function under the Scalazzi subset of Scala.
   //
-  def readLine: String = ???
+  def readLine: String = ""
+  def readLine1: String = "oui"
 
   //
   // EXERCISE 10
   //
   // Implement the following function under the Scalazzi subset of Scala.
   //
-  def systemExit(code: Int): Unit = ???
+  def systemExit(code: Int): Unit = ()
 
   //
   // EXERCISE 11
@@ -298,31 +326,56 @@ object functions {
     println("For help on a command, type `help <command>`")
     println("To exit the help page, type `exit`.")
   }
-  def printer2[A](println: String => A, combine: (A, A) => A): A = ???
+  def printer2[A](println: String => A, combine: (A, A) => A): A = {
+//    combine(
+//      combine(
+//        println("Welcome to the help page!"),
+//        println("To list commands, type `commands`.")
+//      ),
+//      combine(
+//        println("For help on a command, type `help <command>`"),
+//        println("To exit the help page, type `exit`.")
+//      )
+//    )
+    List(
+      "Welcome to the help page!",
+      "To list commands, type `commands`.",
+      "For help on a command, type `help <command>`",
+      "To exit the help page, type `exit`."
+    ).map(println).reduce(combine)
+  }
 
   //
   // EXERCISE 12
   //
   // Create a purely-functional drawing library that is equivalent in
-  // expressive power to the following procedural library.
+  // expressive power to the following procedural library. (draw2)
   //
+  type Bitmap = List[List[Boolean]]
+
   trait Draw {
     def goLeft(): Unit
     def goRight(): Unit
     def goUp(): Unit
     def goDown(): Unit
     def draw(): Unit
-    def finish(): List[List[Boolean]]
+    def finish(): Bitmap
   }
-  def draw1(size: Int): Draw = new Draw {
-    val canvas = Array.fill(size, size)(false)
-    var x = 0
-    var y = 0
 
-    def goLeft(): Unit = x -= 1
+  trait Draw2 {
+    def draw(canvas: Bitmap, x: Int, y: Int): Bitmap
+    def finish(canvas: Bitmap): Bitmap
+  }
+
+  def draw1(size: Int): Draw = new Draw {
+    val canvas: Array[Array[Boolean]] = Array.fill(size, size)(false)
+    var x                             = 0
+    var y                             = 0
+
+    def goLeft(): Unit  = x -= 1
     def goRight(): Unit = x += 1
-    def goUp(): Unit = y += 1
-    def goDown(): Unit = y -= 1
+    def goUp(): Unit    = y += 1
+    def goDown(): Unit  = y -= 1
     def draw(): Unit = {
       def wrap(x: Int): Int =
         if (x < 0) (size - 1) + ((x + 1) % size) else x % size
@@ -332,68 +385,117 @@ object functions {
 
       canvas.updated(x2, canvas(x2).updated(y2, true))
     }
-    def finish(): List[List[Boolean]] =
-      canvas.map(_.toList).toList
+    def finish(): Bitmap = canvas.map(_.toList).toList
+  }
+
+  def draw2(size: Int): Draw2 = new Draw2 {
+    def draw(canvas: Bitmap, x: Int, y: Int): Bitmap = {
+      def wrap(i: Int): Int = if (i < 0) (size - 1) + ((i + 1) % size) else i % size
+
+      val x2 = wrap(x)
+      val y2 = wrap(y)
+
+      canvas.updated(x2, canvas(x2).updated(y2, true))
+    }
+
+    def finish(canvas: Bitmap): Bitmap = canvas.map(_.toList)
   }
 }
 
 object higher_order {
-  case class Parser[+E, +A](
-    run: String => Either[E, (String, A)])
-
-  def fail[E](e: E): Parser[E, Nothing] =
-    Parser(input => Left(e))
-
-  def point[A](a: => A): Parser[Nothing, A] =
-    Parser(input => Right((input, a)))
-
-  def char[E](e: E): Parser[E, Char] =
-    Parser(input =>
-      if (input.length == 0) Left(e)
-      else Right((input.drop(1), input.charAt(0))))
-
   //
   // EXERCISE 1
   //
   // Implement the following higher-order function.
   //
-  def fanout[A, B, C](f: A => B, g: A => C): A => (B, C) = ???
+  def fanout[A, B, C](f: A => B, g: A => C): A => (B, C) = { a: A => (f(a), g(a)) }
 
   //
   // EXERCISE 2
   //
   // Implement the following higher-order function.
   //
-  def cross[A, B, C, D](f: A => B, g: C => D): (A, C) => (B, D) = ???
+  def cross[A, B, C, D](f: A => B, g: C => D): (A, C) => (B, D) = { (a: A, c: C) => (f(a), g(c)) }
 
   //
   // EXERCISE 3
   //
   // Implement the following higher-order function.
   //
-  def either[A, B, C](f: A => B, g: C => B): Either[A, C] => B = ???
+  def either[A, B, C](f: A => B, g: C => B): Either[A, C] => B = {
+    case Left(v)  => f(v)
+    case Right(v) => g(v)
+  }
 
   //
   // EXERCISE 4
   //
   // Implement the following higher-order function.
   //
-  def choice[A, B, C, D](f: A => B, g: C => D): Either[A, C] => Either[B, D] = ???
+  def choice[A, B, C, D](f: A => B, g: C => D): Either[A, C] => Either[B, D] = {
+    case Left(v)  => Left(f(v))
+    case Right(v) => Right(g(v))
+  }
+
+  import cats.implicits._
+
+  def choice2[A, B, C, D](f: A => B, g: C => D): Either[A, C] => Either[B, D] = _.bimap(f, g)
 
   //
   // EXERCISE 5
   //
-  // Implement the following higer-order function.
+  // Implement the following higher-order function.
   //
-  def compose[A, B, C](f: B => C, g: A => B): A => C = ???
+  def compose[A, B, C](f: B => C, g: A => B): A => C = { a: A => f(g(a)) }
+  def compose2[A, B, C](f: B => C, g: A => B): A => C = { a: A => (g andThen f)(a) }
+  def compose3[A, B, C](f: B => C, g: A => B): A => C = { a: A => (f compose g)(a) }
+
+
+  // ------
+
+  final case class Parser[+E, +A](run: String => Either[E, (String, A)])
 
   //
   // EXERCISE 6
   //
   // Implement the following higher-order function.
   //
-  def alt[E1, E2, A, B](l: Parser[E1, A], r: Parser[E2, B]):
-    Parser[E2, Either[A, B]] = ???
+  def fail[E](e: E): Parser[E, Nothing] = Parser(_ => Left(e))
+
+  //
+  // EXERCISE 7
+  //
+  // Implement the following higher-order function.
+  //
+  def point[A](a: => A): Parser[Nothing, A] = Parser(input => Right((input, a)))
+  def point2[A](a: => A): Parser[Nothing, A] = Parser(input => Right(input -> a))
+
+  //
+  // EXERCISE 8
+  //
+  // Implement the following higher-order function.
+  //
+  def char[E](e: E): Parser[E, Char] = Parser(input => input.headOption match {
+    case None    => Left(e)
+    case Some(c) => Right(input.tail, c)
+  })
+
+  //
+  // EXERCISE 9
+  //
+  // Implement the following higher-order function.
+  //
+  def alt[E1, E2, A, B](l: Parser[E1, A], r: Parser[E2, B]): Parser[E2, Either[A, B]] = Parser(input =>
+    l.run(input) match {
+      case Left(_) =>
+        r.run(input) match {
+          case Left(e2)              => Left(e2)
+          case Right(b: (String, B)) => Right((b._1, Right(b._2)))
+        }
+
+      case Right(a: (String, A)) => Right((a._1, Left(a._2)))
+  }
+  )
 }
 
 object poly_functions {
@@ -404,8 +506,10 @@ object poly_functions {
   // `snd` that returns the second element out of any pair of `A` and `B`.
   //
   object snd {
-    ???
+    def apply[A, B](a: A, b: B): B = b
   }
+
+  def snd[A, B](a: A, b: B): B = b
   // snd(1, "foo") // "foo"
 
   //
@@ -416,7 +520,20 @@ object poly_functions {
   // `A` the specified number of times.
   //
   object repeat {
-    ???
+    def apply[A](n: Int)(initialValue: A, f: A => A): A = {
+      @tailrec
+      def go(acc: Int, res: A): A = {
+        if (acc >= n) res
+        else go(acc + 1, f(res))
+      }
+
+      go(0, initialValue)
+    }
+
+    @tailrec
+    def apply2[A](n: Int)(initialValue: A, f: A => A): A =
+      if (n == 0) initialValue
+      else apply2(n - 1)(f(initialValue), f)
   }
   // repeat[Int](100)(0, _ + 1) // 100
   // repeat[String](10)("", _ + "*") // "**********"
@@ -426,16 +543,18 @@ object poly_functions {
   //
   // Count the number of unique implementations of the following method.
   //
-  def countExample1[A, B](a: A, b: B): Either[A, B] = ???
-  val countExample1Answer = ???
+  def countExample1[A, B](a: A, b: B): Either[A, B] = Left(a)
+  def countExample1[A, B](a: A, b: B): Either[A, B] = Right(b)
+  val countExample1Answer                           = 2
 
   //
   // EXERCISE 4
   //
   // Count the number of unique implementations of the following method.
   //
-  def countExample2[A, B](f: A => B, g: A => B, a: A): B = ???
-  val countExample2Answer = ???
+  def countExample2[A, B](f: A => B, g: A => B, a: A): B = f(a)
+  def countExample2[A, B](f: A => B, g: A => B, a: A): B = g(a)
+  val countExample2Answer                                = 2
 
   //
   // EXERCISE 5
@@ -443,7 +562,7 @@ object poly_functions {
   // Implement the function `groupBy`.
   //
   val Data =
-    "poweroutage;2018-09-20;level=20" :: Nil
+  "poweroutage;2018-09-20;level=20" :: Nil
   val By: String => String =
     (data: String) => data.split(";")(1)
   val Reducer: (String, List[String]) => String =
@@ -452,13 +571,15 @@ object poly_functions {
         date + ", there were " +
         events.length + " power outages"
   val Expected =
-    Map("2018-09-20" ->
-      "On date 2018-09-20, there were 1 power outages")
-  def groupBy1(
-    l: List[String],
-    by: String => String)(
-      reducer: (String, List[String]) => String):
-      Map[String, String] = ???
+    Map(
+      "2018-09-20" ->
+        "On date 2018-09-20, there were 1 power outages")
+
+  def groupBy1(l: List[String], by: String => String)(reducer: (String, List[String]) => String): Map[String, String] =
+    l.groupBy(by).map { case (day, lines) =>
+      day -> reducer(day, lines)
+    }
+
   // groupBy1(Data, By)(Reducer) == Expected
 
   //
@@ -467,15 +588,16 @@ object poly_functions {
   // Make the function `groupBy1` as polymorphic as possible and implement
   // the polymorphic function. Compare to the original.
   //
-  object groupBy2 {
-    ???
-  }
+  def groupBy2[A, B, C](l: List[A], by: A => B)(reducer: (B, List[A]) => C): Map[B, C] =
+    l.groupBy(by).map { case (b: B, c: C) =>
+      b -> reducer(b, c)
+    }
 }
 
 object higher_kinded {
-  type ?? = Nothing
-  type ???[A] = Nothing
-  type ????[A, B] = Nothing
+  type ??          = Nothing
+  type ???[A]      = Nothing
+  type ????[A, B]  = Nothing
   type ?????[F[_]] = Nothing
 
   trait `* => *`[F[_]]
@@ -545,7 +667,7 @@ object higher_kinded {
     final def append[A](l: F[A], r: F[A]): F[A] =
       uncons(l) match {
         case Some((l, ls)) => append(ls, cons(l, r))
-        case None => r
+        case None          => r
       }
 
     final def filter[A](fa: F[A])(f: A => Boolean): F[A] =
@@ -554,7 +676,7 @@ object higher_kinded {
     final def bind[A, B](fa: F[A])(f: A => F[B]): F[B] =
       uncons(fa) match {
         case Some((a, as)) => append(f(a), bind(as)(f))
-        case None => empty[B]
+        case None          => empty[B]
       }
 
     final def fmap[A, B](fa: F[A])(f: A => B): F[B] = {
@@ -600,16 +722,17 @@ object higher_kinded {
 }
 
 object typeclasses {
+
   /**
-   * {{
-   * Reflexivity:   a ==> equals(a, a)
-   *
-   * Transitivity:  equals(a, b) && equals(b, c) ==>
-   *                equals(a, c)
-   *
-   * Symmetry:      equals(a, b) ==> equals(b, a)
-   * }}
-   */
+    * {{
+    * Reflexivity:   a ==> equals(a, a)
+    *
+    * Transitivity:  equals(a, b) && equals(b, c) ==>
+    *                equals(a, c)
+    *
+    * Symmetry:      equals(a, b) ==> equals(b, a)
+    * }}
+    */
   trait Eq[A] {
     def equals(l: A, r: A): Boolean
   }
@@ -624,15 +747,15 @@ object typeclasses {
         def equals(l: List[A], r: List[A]): Boolean =
           (l, r) match {
             case (Nil, Nil) => true
-            case (Nil, _) => false
-            case (_, Nil) => false
+            case (Nil, _)   => false
+            case (_, Nil)   => false
             case (l :: ls, r :: rs) =>
               Eq[A].equals(l, r) && equals(ls, rs)
           }
       }
   }
   implicit class EqSyntax[A](val l: A) extends AnyVal {
-    def === (r: A)(implicit eq: Eq[A]): Boolean =
+    def ===(r: A)(implicit eq: Eq[A]): Boolean =
       eq.equals(l, r)
   }
 
@@ -641,16 +764,16 @@ object typeclasses {
   //
   sealed trait Ordering
   case object EQUAL extends Ordering
-  case object LT extends Ordering
-  case object GT extends Ordering
+  case object LT    extends Ordering
+  case object GT    extends Ordering
   object Ordering {
     implicit val OrderingEq: Eq[Ordering] = new Eq[Ordering] {
       def equals(l: Ordering, r: Ordering): Boolean =
         (l, r) match {
           case (EQUAL, EQUAL) => true
-          case (LT, LT) => true
-          case (GT, GT) => true
-          case _ => false
+          case (LT, LT)       => true
+          case (GT, GT)       => true
+          case _              => false
         }
     }
   }
@@ -667,33 +790,35 @@ object typeclasses {
     }
   }
   implicit class OrdSyntax[A](val l: A) extends AnyVal {
-    def =?= (r: A)(implicit A: Ord[A]): Ordering =
+    def =?=(r: A)(implicit A: Ord[A]): Ordering =
       A.compare(l, r)
 
-    def < (r: A)(implicit A: Ord[A]): Boolean =
+    def <(r: A)(implicit A: Ord[A]): Boolean =
       Eq[Ordering].equals(A.compare(l, r), LT)
 
-    def <= (r: A)(implicit A: Ord[A]): Boolean =
+    def <=(r: A)(implicit A: Ord[A]): Boolean =
       (l < r) || (this === r)
 
-    def > (r: A)(implicit A: Ord[A]): Boolean =
+    def >(r: A)(implicit A: Ord[A]): Boolean =
       Eq[Ordering].equals(A.compare(l, r), GT)
 
-    def >= (r: A)(implicit A: Ord[A]): Boolean =
+    def >=(r: A)(implicit A: Ord[A]): Boolean =
       (l > r) || (this === r)
 
-    def === (r: A)(implicit A: Ord[A]): Boolean =
+    def ===(r: A)(implicit A: Ord[A]): Boolean =
       Eq[Ordering].equals(A.compare(l, r), EQUAL)
 
-    def !== (r: A)(implicit A: Ord[A]): Boolean =
+    def !==(r: A)(implicit A: Ord[A]): Boolean =
       !Eq[Ordering].equals(A.compare(l, r), EQUAL)
   }
   case class Person(age: Int, name: String)
   object Person {
     implicit val OrdPerson: Ord[Person] = new Ord[Person] {
       def compare(l: Person, r: Person): Ordering =
-        if (l.age < r.age) LT else if (l.age > r.age) GT
-        else if (l.name < r.name) LT else if (l.name > r.name) GT
+        if (l.age < r.age) LT
+        else if (l.age > r.age) GT
+        else if (l.name < r.name) LT
+        else if (l.name > r.name) GT
         else EQUAL
     }
     implicit val EqPerson: Eq[Person] = new Eq[Person] {
@@ -743,11 +868,11 @@ object typeclasses {
   type ???[A] = Nothing
 
   /**
-   * {{
-   * // Associativity:
-   * (a <> b) <> c === a <> (b <> c)
-   * }}
-   */
+    * {{
+    * // Associativity:
+    * (a <> b) <> c === a <> (b <> c)
+    * }}
+    */
   trait SemigroupClass[A] {
     def append(l: => A, r: => A): A
   }
@@ -756,20 +881,18 @@ object typeclasses {
     def apply[A](implicit A: Semigroup[A]): Semigroup[A] = A
 
     implicit val SemigroupString: Semigroup[String] =
-      instanceOf(
-        new SemigroupClass[String] {
-          def append(l: => String, r: => String): String = l + r
-        })
+      instanceOf(new SemigroupClass[String] {
+        def append(l: => String, r: => String): String = l + r
+      })
     implicit def SemigroupList[A]: Semigroup[List[A]] =
-      instanceOf(
-        new SemigroupClass[List[A]] {
-          def append(l: => List[A], r: => List[A]): List[A] = l ++ r
-        })
+      instanceOf(new SemigroupClass[List[A]] {
+        def append(l: => List[A], r: => List[A]): List[A] = l ++ r
+      })
   }
   implicit def AnyToSemigroupSyntax[A](a: => A): SemigroupSyntax[A] =
     new SemigroupSyntax(() => a)
   class SemigroupSyntax[A](l: () => A) {
-    def <> (r: => A)(implicit A: Semigroup[A]): A = A.append(l(), r)
+    def <>(r: => A)(implicit A: Semigroup[A]): A = A.append(l(), r)
   }
   //
   // EXERCISE 3
@@ -809,11 +932,11 @@ object typeclasses {
   // `zero`, which satisfies additional laws.
   //
   /**
-   * {{
-   * append(zero, a) === a
-   * append(a, zero) === a
-   * }}
-   */
+    * {{
+    * append(zero, a) === a
+    * append(a, zero) === a
+    * }}
+    */
   trait MonoidClass[A] extends SemigroupClass[A] {
     /* ??? */
   }
