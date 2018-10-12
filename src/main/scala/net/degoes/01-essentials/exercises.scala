@@ -5,6 +5,7 @@ package net.degoes.essentials
 import java.time.LocalDate
 
 import scala.annotation.tailrec
+import scala.language.higherKinds
 import scala.util.Try
 
 object types {
@@ -388,6 +389,7 @@ object functions {
     def finish(): Bitmap = canvas.map(_.toList).toList
   }
 
+  // Solution pas feature-complete (pas de go{...})
   def draw2(size: Int): Draw2 = new Draw2 {
     def draw(canvas: Bitmap, x: Int, y: Int): Bitmap = {
       def wrap(i: Int): Int = if (i < 0) (size - 1) + ((i + 1) % size) else i % size
@@ -399,6 +401,44 @@ object functions {
     }
 
     def finish(canvas: Bitmap): Bitmap = canvas.map(_.toList)
+  }
+
+  sealed trait Action
+  case object GoLeft extends Action
+  case object GoRight extends Action
+  case object GoUp extends Action
+  case object GoDown extends Action
+  case object Draw extends Action
+
+  final case class Abscissa(value: Int) extends AnyVal {
+    def +(i: Int): Abscissa = copy(value + i)
+    def -(i: Int): Abscissa = copy(value - i)
+  }
+
+  final case class Ordinate(value: Int) extends AnyVal {
+    def +(i: Int): Ordinate = copy(value + i)
+    def -(i: Int): Ordinate = copy(value - i)
+  }
+
+  type Coord = (Abscissa, Ordinate)
+
+  def draw3(size: Int, actions: List[Action]): Bitmap = {
+    @inline
+    def wrap(x: Int): Int = if (x < 0) (size - 1) + ((x + 1) % size) else x % size
+
+    actions.foldLeft(((Abscissa(0), Ordinate(0)), List.fill(size, size)(false)): (Coord, Bitmap)) {
+      case (((x, y), bitmap), action) => action match {
+        case GoLeft  => ((x - 1, y), bitmap)
+        case GoRight => ((x + 1, y), bitmap)
+        case GoUp    => ((x, y + 1), bitmap)
+        case GoDown  => ((x, y - 1), bitmap)
+        case Draw    =>
+          val x2 = wrap(x.value)
+          val y2 = wrap(y.value)
+
+          ((Abscissa(x2), Ordinate(y2)), bitmap.updated(x2, bitmap(x2).updated(y2, true)))
+      }
+    }._2
   }
 }
 
@@ -490,12 +530,11 @@ object higher_order {
       case Left(_) =>
         r.run(input) match {
           case Left(e2)              => Left(e2)
-          case Right(b: (String, B)) => Right((b._1, Right(b._2)))
+          case Right((rest, b)) => Right((rest, Right(b)))
         }
 
-      case Right(a: (String, A)) => Right((a._1, Left(a._2)))
-  }
-  )
+      case Right((rest, a)) => Right((rest, Left(a)))
+  })
 }
 
 object poly_functions {
@@ -544,7 +583,7 @@ object poly_functions {
   // Count the number of unique implementations of the following method.
   //
   def countExample1[A, B](a: A, b: B): Either[A, B] = Left(a)
-  def countExample1[A, B](a: A, b: B): Either[A, B] = Right(b)
+  def countExample11[A, B](a: A, b: B): Either[A, B] = Right(b)
   val countExample1Answer                           = 2
 
   //
@@ -553,7 +592,7 @@ object poly_functions {
   // Count the number of unique implementations of the following method.
   //
   def countExample2[A, B](f: A => B, g: A => B, a: A): B = f(a)
-  def countExample2[A, B](f: A => B, g: A => B, a: A): B = g(a)
+  def countExample21[A, B](f: A => B, g: A => B, a: A): B = g(a)
   val countExample2Answer                                = 2
 
   //
@@ -610,7 +649,7 @@ object higher_kinded {
   // Identify a type constructor that takes one type parameter (i.e. has kind
   // `* => *`), and place your answer inside the square brackets.
   //
-  type Answer1 = `* => *`[???]
+  type Answer1 = `* => *`[List]
 
   //
   // EXERCISE 2
@@ -618,37 +657,38 @@ object higher_kinded {
   // Identify a type constructor that takes two type parameters (i.e. has kind
   // `[*, *] => *`), and place your answer inside the square brackets.
   //
-  type Answer2 = `[*, *] => *`[????]
+  type Answer2 = `[*, *] => *`[Tuple2]
 
   //
   // EXERCISE 3
   //
   // Create a trait with kind `*`.
   //
-  trait Answer3 /*[]*/
+  trait Answer3
 
   //
   // EXERCISE 4
   //
   // Create a trait with kind `[*, *, *] => *`.
   //
-  trait Answer4 /*[]*/
+  trait Answer4[A, B, C]
 
   //
   // EXERCISE 5
   //
-  // Create a new type that has kind `(* -> *) -> *`.
+  // Create a new type that has kind `(* => *) => *`.
   //
-  type NewType1 /* ??? */
-  type Answer5 = `(* => *) => *`[?????]
+  type NewType1[List]
+  type NewType2[F[_]]
+  type Answer5 = `(* => *) => *`[NewType1]
 
   //
   // EXERCISE 6
   //
   // Create a trait with kind `[* => *, (* => *) => *] => *`.
   //
-  trait Answer6 /*[]*/
-
+  trait Answer6[F[_], G[_[_]]]
+  trait Either[F, G]  // not higher-kinded
   //
   // EXERCISE 7
   //
@@ -685,7 +725,14 @@ object higher_kinded {
       bind(fa)(f andThen single)
     }
   }
-  val ListCollectionLike: CollectionLike[List] = ???
+  val ListCollectionLike: CollectionLike[List] = new CollectionLike[List] {
+    def empty[A]: List[A]                             = Nil
+    def cons[A](a: A, as: List[A]): List[A]           = a :: as
+    def uncons[A](as: List[A]): Option[(A, List[A])]  = as match {
+      case Nil        => None
+      case head :: tl => Some(head, tl)
+    }
+  }
 
   //
   // EXERCISE 8
@@ -697,13 +744,19 @@ object higher_kinded {
     def size[A](fa: F[A]): Int
   }
 
+  val listSized: Sized[List] = new Sized[List] {
+    override def size[A](fa: List[A]): Int = fa.size
+  }
+
   //
   // EXERCISE 9
   //
   // Implement `Sized` for `Map`, partially applied with its first type
   // parameter to `String`.
   //
-  val MapSized1: Sized[Map[String, ?]] = ???
+  val MapSized1: Sized[Map[String, ?]] = new Sized[Map[String, ?]] {
+    override def size[A](fa: Map[String, A]): Int = fa.size
+  }
 
   //
   // EXERCISE 9
@@ -711,14 +764,18 @@ object higher_kinded {
   // Implement `Sized` for `Map`, partially applied with its first type
   // parameter to a user-defined type parameter.
   //
-  def MapSized2[K]: Sized[Map[K, ?]] = ???
+  def MapSized2[K]: Sized[Map[K, ?]] = new Sized[Map[K, ?]] {
+    override def size[A](fa: Map[K, A]): Int = fa.size
+  }
 
   //
   // EXERCISE 10
   //
   // Implement `Sized` for `Tuple3`.
   //
-  def Tuple3Sized: ?? = ???
+  def Tuple3Sized[A, B]: Sized[(A, B, ?)] = new Sized[(A, B, ?)] {
+    override def size[C](fa: (A, B, C)): Int = 1
+  }
 }
 
 object typeclasses {
@@ -841,7 +898,15 @@ object typeclasses {
 
       sort1(lessThan) ++ List(x) ++ sort1(notLessThan)
   }
-  def sort2[A: Ord](l: List[A]): List[A] = ???
+
+  def sort2[A: Ord](l: List[A]): List[A] = l match {
+    case Nil          => Nil
+    case head :: tail =>
+      val lessThan = tail.filter(a => (a =?= head) == LT)
+      val greaterThan = tail.filter(a => (a =?= head) == GT)
+
+      sort2(lessThan) ++ List(head) ++ sort2(greaterThan)
+  }
 
   //
   // EXERCISE 2
