@@ -2,7 +2,7 @@
 
 package net.degoes.essentials
 
-import java.time.LocalDate
+import java.time.{Duration, LocalDate}
 
 import scala.annotation.tailrec
 import scala.language.higherKinds
@@ -680,7 +680,7 @@ object higher_kinded {
   //
   type NewType1[List]
   type NewType2[F[_]]
-  type Answer5 = `(* => *) => *`[NewType1]
+//  type Answer5 = `(* => *) => *`[NewType1]
 
   //
   // EXERCISE 6
@@ -796,9 +796,11 @@ object typeclasses {
   object Eq {
     def apply[A](implicit eq: Eq[A]): Eq[A] = eq
 
-    implicit val EqInt: Eq[Int] = new Eq[Int] {
-      def equals(l: Int, r: Int): Boolean = l == r
-    }
+    implicit val EqInt: Eq[Int] =
+      new Eq[Int] {
+        def equals(l: Int, r: Int): Boolean = l == r
+      }
+
     implicit def EqList[A: Eq]: Eq[List[A]] =
       new Eq[List[A]] {
         def equals(l: List[A], r: List[A]): Boolean =
@@ -811,10 +813,15 @@ object typeclasses {
           }
       }
   }
-  implicit class EqSyntax[A](val l: A) extends AnyVal {
-    def ===(r: A)(implicit eq: Eq[A]): Boolean =
-      eq.equals(l, r)
+  implicit class EqSyntax[A](val l: A) {
+    def ====(r: A)(implicit eq: Eq[A]): Boolean = eq.equals(l, r)
   }
+
+  def g0[A](l: A, r: A)(eq: Eq[A]): Boolean              = eq.equals(l, r)
+  def g1[A](l: A, r: A)(implicit eq: Eq[A]): Boolean     = eq.equals(l, r)
+  def g2[A: Eq](l: A, r: A): Boolean = implicitly[Eq[A]].equals(l, r)
+  def g3[A: Eq](l: A, r: A): Boolean = Eq[A].equals(l, r)
+  def g4[A: Eq](l: A, r: A): Boolean = l ==== r
 
   //
   // Scalaz 7 Encoding
@@ -868,7 +875,9 @@ object typeclasses {
     def !==(r: A)(implicit A: Ord[A]): Boolean =
       !Eq[Ordering].equals(A.compare(l, r), EQUAL)
   }
+
   case class Person(age: Int, name: String)
+
   object Person {
     implicit val OrdPerson: Ord[Person] = new Ord[Person] {
       def compare(l: Person, r: Person): Ordering =
@@ -899,14 +908,14 @@ object typeclasses {
       sort1(lessThan) ++ List(x) ++ sort1(notLessThan)
   }
 
-  def sort2[A: Ord](l: List[A]): List[A] = l match {
-    case Nil          => Nil
-    case head :: tail =>
-      val lessThan = tail.filter(a => (a =?= head) == LT)
-      val greaterThan = tail.filter(a => (a =?= head) == GT)
+  def sort2[A: Ord](l: List[A]): List[A] =
+    l match {
+      case Nil => Nil
+      case x :: xs =>
+        val (lessThan, moreThan) = xs.partition(_ < x)
 
-      sort2(lessThan) ++ List(head) ++ sort2(greaterThan)
-  }
+        sort2(lessThan) ++ List(x) ++ sort2(moreThan)
+    }
 
   //
   // EXERCISE 2
@@ -914,71 +923,38 @@ object typeclasses {
   // Create an instance of `Ord` for the type `String`.
   //
   implicit val OrdString: Ord[String] = ???
-  //
-  // Scalaz 8 Encoding
-  //
-  sealed abstract class InstanceOfModule {
-    type InstanceOf[T] <: T
-    def instanceOf[T](t: T): InstanceOf[T]
-  }
-
-  object InstanceOfModule {
-    val impl: InstanceOfModule = new InstanceOfModule {
-      override type InstanceOf[T] = T
-      override def instanceOf[T](t: T) = t
-    }
-  }
-  import InstanceOfModule.impl._
 
   type ???[A] = Nothing
 
-  /**
-    * {{
-    * // Associativity:
-    * (a <> b) <> c === a <> (b <> c)
-    * }}
-    */
-  trait SemigroupClass[A] {
-    def append(l: => A, r: => A): A
-  }
-  type Semigroup[A] = InstanceOf[SemigroupClass[A]]
-  object SemigroupClass {
-    def apply[A](implicit A: Semigroup[A]): Semigroup[A] = A
+  import scalaz.{Monoid, Semigroup}
 
-    implicit val SemigroupString: Semigroup[String] =
-      instanceOf(new SemigroupClass[String] {
-        def append(l: => String, r: => String): String = l + r
-      })
-    implicit def SemigroupList[A]: Semigroup[List[A]] =
-      instanceOf(new SemigroupClass[List[A]] {
-        def append(l: => List[A], r: => List[A]): List[A] = l ++ r
-      })
-  }
-  implicit def AnyToSemigroupSyntax[A](a: => A): SemigroupSyntax[A] =
-    new SemigroupSyntax(() => a)
-  class SemigroupSyntax[A](l: () => A) {
-    def <>(r: => A)(implicit A: Semigroup[A]): A = A.append(l(), r)
-  }
   //
   // EXERCISE 3
   //
   // Create an instance of the `Semigroup` type class for `java.time.Duration`.
   //
-  implicit val SemigroupInstant: Semigroup[java.time.Duration] = ???
+  implicit val SemigroupInstant: Semigroup[java.time.Duration] = new Semigroup[Duration] {
+    override def append(f1: Duration, f2: => Duration): Duration = f1.plus(f2)
+  }
 
   //
   // EXERCISE 4
   //
   // Create an instance of the `Semigroup` type class for `Int`.
   //
-  implicit val SemigroupInt: Semigroup[Int] = ???
+  implicit val SemigroupInt: Semigroup[Int] = new Semigroup[Int] {
+    override def append(f1: Int, f2: => Int): Int = f1 + f2
+  }
 
   //
   // EXERCISE 5
   //
   // Create an instance of the `Semigroup` type class for `Set[A]`.
   //
-  implicit def SemigroupSet[A]: Semigroup[Set[A]] = ???
+  implicit def SemigroupSet[A]: Semigroup[Set[A]] = new Semigroup[Set[A]] {
+    override def append(f1: Set[A], f2: => Set[A]): Set[A] =
+      f1 ++ f2
+  }
 
   //
   // EXERCISE 6
@@ -986,8 +962,9 @@ object typeclasses {
   // Create an instance of the `Semigroup` type class for `Map[K, ?]`. Hint:
   // you will need some constraint applied to the values.
   //
-  implicit def SemigroupMap[K, V: ???]: Semigroup[Map[K, V]] =
-    ???
+  implicit def SemigroupMap[K, V: Semigroup]: Semigroup[Map[K, V]] = new Semigroup[Map[K, V]] {
+    override def append(f1: Map[K, V], f2: => Map[K, V]): Map[K, V] = f1 ++ f2
+  }
 
   //
   // EXERCISE 7
@@ -996,50 +973,50 @@ object typeclasses {
   // `Monoid[A]` must be a `Semigroup[A]`), which adds a single operation called
   // `zero`, which satisfies additional laws.
   //
-  /**
-    * {{
-    * append(zero, a) === a
-    * append(a, zero) === a
-    * }}
-    */
-  trait MonoidClass[A] extends SemigroupClass[A] {
-    /* ??? */
+
+  trait MyMonoid[A] extends Semigroup[A] {
+    def zero: A
   }
-  object MonoidClass {
-    def apply[A](implicit A: Monoid[A]): Monoid[A] = ???
-  }
-  type Monoid[A] = InstanceOf[MonoidClass[A]]
-  implicit def MonoidSemigroup[A](implicit M: Monoid[A]): Semigroup[A] =
-    instanceOf(M)
-  def empty[A: Monoid]: A = ???
 
   //
   // EXERCISE 8
   //
   // Create an instance of the `Monoid` type class for `java.time.Duration`.
   //
-  implicit val MonoidInstant: Monoid[java.time.Duration] = ???
+  implicit val MonoidInstant: Monoid[java.time.Duration] = new Monoid[java.time.Duration] {
+    override def zero: Duration = Duration.ZERO
+    override def append(f1: Duration, f2: => Duration): Duration = f1.plus(f2)
+  }
 
   //
   // EXERCISE 9
   //
   // Create an instance of the `Monoid` type class for `String`.
   //
-  implicit val MonoidString: Monoid[String] = ???
+  implicit val MonoidString: Monoid[String] = new Monoid[String] {
+    override def zero: String = ""
+    override def append(f1: String, f2: => String): String = f1 + f2
+  }
 
   //
   // EXERCISE 10
   //
   // Create an instance of the `Monoid` type class for `List[A]`.
   //
-  implicit def MonoidList[A]: Monoid[List[A]] = ???
+  implicit def MonoidList[A]: Monoid[List[A]] = new Monoid[List[A]] {
+    override def zero: List[A] = Nil
+    override def append(f1: List[A], f2: => List[A]): List[A] = f1 ++ f2
+  }
 
   //
   // EXERCISE 11
   //
   // Create an instance of the `Monoid` type class for `Int`.
   //
-  implicit val MonoidInt: Monoid[Int] = ???
+  implicit val MonoidInt: Monoid[Int] = new Monoid[Int] {
+    override def zero: Int = 0
+    override def append(f1: Int, f2: => Int): Int = f1 + f2
+  }
 
   //
   // EXERCISE 12
@@ -1048,8 +1025,11 @@ object typeclasses {
   // representing the additive monoid, with addition as `append`, and 0 as
   // `zero`.
   //
-  final case class Sum(run: Int)
-  implicit val MonoidSum: Monoid[Sum] = ???
+  final case class Sum(run: Int) extends AnyVal
+  implicit val MonoidSum: Monoid[Sum] = new Monoid[Sum] {
+    override def zero: Sum = Sum(0)
+    override def append(f1: Sum, f2: => Sum): Sum = Sum(f1.run + f2.run)
+  }
 
   //
   // EXERCISE 13
@@ -1058,22 +1038,9 @@ object typeclasses {
   // representing the multiplicative monoid, with multiplication as `append`,
   // and 1 as `zero`.
   //
-  final case class Product(run: Int)
-  implicit val MonoidProduct: Monoid[Product] = ???
-
-  //
-  // EXERCISE 14
-  //
-  // Create an instance of the `Collection` type class for `List`.
-  //
-  trait CollectionClass[F[_]] {
-    def empty[A]: F[A]
-    def cons[A](a: A, as: F[A]): F[A]
-    def uncons[A](fa: F[A]): Option[(A, F[A])]
+  final case class Product(run: Int) extends AnyVal
+  implicit val MonoidProduct: Monoid[Product] = new Monoid[Product] {
+    override def zero: Product = Product(1)
+    override def append(f1: Product, f2: => Product): Product = Product(f1.run * f2.run)
   }
-  object CollectionClass {
-    def apply[F[_]](implicit F: Collection[F]): Collection[F] = F
-  }
-  type Collection[F[_]] = InstanceOf[CollectionClass[F]]
-  implicit val ListCollection: Collection[List] = ???
 }

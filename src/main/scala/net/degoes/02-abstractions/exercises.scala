@@ -58,7 +58,10 @@ object functor {
   implicit val BTreeFunctor: Functor[BTree] =
     new Functor[BTree] {
       def map[A, B](fa: BTree[A])(f: A => B): BTree[B] =
-        ???
+        fa match {
+          case Leaf(a) => Leaf(f(a))
+          case Fork(left, right) => Fork(map(left)(f), map(right)(f))
+        }
     }
 
   //
@@ -66,7 +69,9 @@ object functor {
   //
   // Define an instance of `Functor` for `Nothing`.
   //
-  implicit val NothingFunctor: Functor[Nothing] = ???
+  implicit val NothingFunctor: Functor[Nothing] = new Functor[Nothing] {
+    override def map[A, B](fa: Nothing)(f: A => B): Nothing = fa
+  }
 
   //
   // EXERCISE 3
@@ -76,8 +81,25 @@ object functor {
   case class Parser[+E, +A](run: String => Either[E, (String, A)])
   implicit def ParserFunctor[E]: Functor[Parser[E, ?]] =
     new Functor[Parser[E, ?]] {
-      def map[A, B](fa: Parser[E, A])(f: A => B): Parser[E, B] =
-        ???
+      def map[A, B](fa: Parser[E, A])(f: A => B): Parser[E, B] = {
+        Parser[E, B](str =>
+          fa.run(str) match {
+            case Left(e)       => Left(e)
+            case Right((s, a)) => Right((s, f(a)))
+          }
+        )
+      }
+    }
+
+  implicit def ParserFunctor2[E]: Functor[Parser[E, ?]] =
+    new Functor[Parser[E, ?]] {
+      def map[A, B](fa: Parser[E, A])(f: A => B): Parser[E, B] = {
+        Parser[E, B](str =>
+          fa.run(str).map {
+            case (s, a) => (s, f(a))
+          }
+        )
+      }
     }
 
   //
@@ -88,8 +110,9 @@ object functor {
   case class DataType[A](f: A => A)
   implicit val DataTypeFunctor: Functor[DataType] =
     new Functor[DataType] {
-      def map[A, B](fa: DataType[A])(f: A => B): DataType[B] =
+      def map[A, B](fa: DataType[A])(f: A => B): DataType[B] = {
         ???
+      }
     }
 
   //
@@ -99,7 +122,10 @@ object functor {
   //
   case class FunctorProduct[F[_], G[_], A](l: F[A], r: G[A])
   implicit def FunctorProductFunctor[F[_]: Functor, G[_]: Functor]:
-    Functor[FunctorProduct[F, G, ?]] = ???
+    Functor[FunctorProduct[F, G, ?]] = new Functor[FunctorProduct[F, G, ?]] {
+      def map[A, B](fa: FunctorProduct[F, G, A])(f: A => B): FunctorProduct[F, G, B] =
+        FunctorProduct[F, G, B](fa.l.map(f), fa.r.map(f))
+    }
 
   //
   // EXERCISE 6
@@ -108,7 +134,13 @@ object functor {
   //
   case class FunctorSum[F[_], G[_], A](run: Either[F[A], G[A]])
   implicit def FunctorSumFunctor[F[_]: Functor, G[_]: Functor]:
-    Functor[FunctorSum[F, G, ?]] = ???
+    Functor[FunctorSum[F, G, ?]] = new Functor[FunctorSum[F, G, ?]] {
+      def map[A, B](fa: FunctorSum[F, G, A])(f: A => B): FunctorSum[F, G, B] =
+        FunctorSum(fa.run match {
+          case Left(l)  => Left(l.map(f))
+          case Right(r) => Right(r.map(f))
+        })
+    }
 
   //
   // EXERCISE 7
@@ -117,7 +149,10 @@ object functor {
   //
   case class FunctorNest[F[_], G[_], A](run: F[G[A]])
   implicit def FunctorNestFunctor[F[_]: Functor, G[_]: Functor]:
-    Functor[FunctorNest[F, G, ?]] = ???
+    Functor[FunctorNest[F, G, ?]] = new Functor[FunctorNest[F, G, ?]] {
+      def map[A, B](fa: FunctorNest[F, G, A])(f: A => B): FunctorNest[F, G, B] =
+        FunctorNest(fa.run.map(_.map(f)))
+    }
 
   def zipOption[A, B](l: Option[A], r: Option[B]): Option[(A, B)] =
     (l, r) match {
@@ -147,10 +182,13 @@ object functor {
   //
   implicit val OptionApplicative: Applicative[Option] =
     new Applicative[Option] {
-      def point[A](a: => A): Option[A] = ???
+      def point[A](a: => A): Option[A] = Some(a)
 
       def ap[A, B](fa: => Option[A])(f: => Option[A => B]): Option[B] =
-        ???
+        (fa, f) match {
+          case (Some(a), Some(ff)) => Some(ff(a))
+          case _                   => None
+        }
     }
 
   //
@@ -162,10 +200,12 @@ object functor {
   //
   val example1 = (Option(3) |@| Option(5))((_, _))
   val example2 = zip(Option(3), Option("foo")) : Option[(Int, String)]
+
   def zip[F[_]: Applicative, A, B](l: F[A], r: F[B]): F[(A, B)] =
-    ???
+    (l |@| r)((_, _))
+
   def ap2[F[_]: Applicative, A, B](fa: F[A], fab: F[A => B]): F[B] =
-    ???
+    zip(fa, fab).map { case (a, f) => f(a) }
 
   //
   // EXERCISE 10
@@ -175,11 +215,33 @@ object functor {
   implicit def ApplicativeParser[E]: Applicative[Parser[E, ?]] =
     new Applicative[Parser[E, ?]] {
       def point[A](a: => A): Parser[E,A] =
-        ???
+        Parser[E, A](s => Right(s -> a))
+
+      def ap[A, B](fa: => Parser[E,A])(f: => Parser[E, A => B]): Parser[E,B] =
+        Parser[E, B] { s =>
+          f.run(s) match {
+            case Left(e)        => Left(e)
+            case Right((s0, f)) =>
+              fa.run(s0) match {
+                case Left(e)        => Left(e)
+                case Right((s1, a)) => Right((s1, f(a)))
+              }
+          }
+        }
+    }
+
+  implicit def ApplicativeParserFlorian[E]: Applicative[Parser[E, ?]] =
+    new Applicative[Parser[E, ?]] {
+      def point[A](a: => A): Parser[E,A] = Parser(s => Right((s, a)))
 
       def ap[A, B](fa: => Parser[E,A])(
         f: => Parser[E, A => B]): Parser[E,B] =
-          ???
+        Parser(
+          (s: String) => zip(fa.run(s), f.run(s)) match {
+            case Left(e) => Left(e)
+            case Right(((s1, a), (s2, b))) => Right(/*s1 + s2*/s2, b(a))
+          }
+        )
     }
 
   //
@@ -189,11 +251,13 @@ object functor {
   //
   implicit val MonadBTree: Monad[BTree] =
     new Monad[BTree] {
-      def point[A](a: => A): BTree[A] =
-        ???
+      def point[A](a: => A): BTree[A] = Leaf(a)
 
       def bind[A, B](fa: BTree[A])(f: A => BTree[B]): BTree[B] =
-        ???
+        fa match {
+          case Leaf(a)           => f(a)
+          case Fork(left, right) => Fork(bind(left)(f), bind(right)(f))
+        }
     }
 
   //
@@ -203,10 +267,15 @@ object functor {
   //
   implicit def MonadParser[E]: Monad[Parser[E, ?]] =
     new Monad[Parser[E, ?]] {
-      def point[A](a: => A): Parser[E,A] = ???
+      def point[A](a: => A): Parser[E,A] = Parser[E, A](s => Right(s -> a))
 
       def bind[A, B](fa: Parser[E,A])(f: A => Parser[E,B]): Parser[E,B] =
-        ???
+        Parser[E, B](s =>
+          fa.run(s) match {
+            case Left(e)        => Left(e)
+            case Right((s1, a)) => f(a).run(s1)
+          }
+        )
     }
 }
 
@@ -221,12 +290,10 @@ object foldable {
   case class Fork[A](left: BTree[A], right: BTree[A]) extends BTree[A]
   implicit val FoldableBTree: Foldable[BTree] =
     new Foldable[BTree] {
-      def foldMap[A, B](fa: BTree[A])(f: A => B)(
-          implicit F: Monoid[B]): B =
+      def foldMap[A, B](fa: BTree[A])(f: A => B)(implicit F: Monoid[B]): B =
         ???
 
-      def foldRight[A, B](fa: BTree[A], z: => B)(
-          f: (A, => B) => B): B =
+      def foldRight[A, B](fa: BTree[A], z: => B)(f: (A, => B) => B): B =
         ???
     }
 
@@ -245,9 +312,20 @@ object foldable {
   //
   implicit val TraverseBTree: Traverse[BTree] =
     new Traverse[BTree] {
-      def traverseImpl[G[_], A, B](fa: BTree[A])(
-        f: A => G[B])(implicit F: Applicative[G]): G[BTree[B]] =
-          ???
+      def traverseImpl[G[_], A, B](fa: BTree[A])(f: A => G[B])(implicit F: Applicative[G]): G[BTree[B]] =
+        fa match {
+          case Leaf(a)           => f(a).map(Leaf(_))
+          case Fork(left, right) => (traverseImpl(left)(f) |@| traverseImpl(right)(f))(Fork(_, _))
+        }
+    }
+
+  implicit val TraverseBTree2: Traverse[BTree] =
+    new Traverse[BTree] {
+      def traverseImpl[G[_], A, B](fa: BTree[A])(f: A => G[B])(implicit F: Applicative[G]): G[BTree[B]] =
+        fa match {
+          case Leaf(a)           => f(a).map(Leaf(_))
+          case Fork(left, right) => F.apply2(traverseImpl(left)(f), traverseImpl(right)(f))(Fork(_, _))
+        }
     }
 
   //
@@ -256,7 +334,19 @@ object foldable {
   // Try to define an instance of `Traverse` for `Parser[E, ?]`.
   //
   case class Parser[+E, +A](run: String => Either[E, (String, A)])
-  implicit def TraverseParser[E]: Traverse[Parser[E, ?]] = ???
+  implicit def TraverseParser[E]: Traverse[Parser[E, ?]] =
+    new Traverse[Parser[E, ?]] {
+      def traverseImpl[G[_], A, B](fa: Parser[E, A])(f: A => G[B])(implicit F: Applicative[G]): G[Parser[E, B]] =
+        ???
+//        Parser[E, B](input =>
+//          fa.run(input) match {
+//            case Left(e)  => Left(e)
+//            case Right((s, a)) => f(a).map(b => Right(s, a))
+//          }
+//        )
+
+      // Impossible
+    }
 }
 
 object optics {

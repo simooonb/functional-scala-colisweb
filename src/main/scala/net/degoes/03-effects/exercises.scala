@@ -59,7 +59,12 @@ object zio_background {
   //
   // Rewrite `program1` to use a for comprehension.
   //
-  val yourName2: Program[Unit] = ???
+  val yourName2: Program[Unit] =
+    for {
+      _         <- writeLine("What is your name?")
+      lineRead  <- readLine
+      wrote     <- writeLine(s"Hello, $lineRead, good to meet you!")
+    } yield wrote
 
   //
   // EXERCISE 2
@@ -67,7 +72,11 @@ object zio_background {
   // Rewrite `yourName2` using the helper function `getName`, which shows how
   // to create larger programs from smaller programs.
   //
-  def yourName3: Program[Unit] = ???
+  def yourName3: Program[Unit] =
+    for {
+      lineRead  <- getName
+      wrote     <- writeLine(s"Hello, $lineRead, good to meet you!")
+    } yield wrote
 
   val getName: Program[String] =
     writeLine("What is your name?").flatMap(_ => readLine)
@@ -78,7 +87,19 @@ object zio_background {
   // Implement the following effectful procedure, which interprets
   // `Program[A]` into `A`. You can use this procedure to "run" programs.
   //
-  def interpret[A](program: Program[A]): A = ???
+  def interpret[A](program: Program[A]): A =
+    program match {
+      case Program.ReadLine(next) =>
+        val line: String = scala.io.StdIn.readLine()
+        interpret(next(line))
+
+      case Program.WriteLine(line, next) =>
+        println(line)
+        interpret(next)
+
+      case Program.Return(value) =>
+        value()
+    }
 
   //
   // EXERCISE 4
@@ -87,7 +108,10 @@ object zio_background {
   // that operates on programs.
   //
   def sequence[A](programs: List[Program[A]]): Program[List[A]] =
-    ???
+    programs match {
+      case Nil          => point(Nil)
+      case head :: tail => head.flatMap(a => sequence(tail).map(as => a :: as))
+    }
 
   //
   // EXERCISE 5
